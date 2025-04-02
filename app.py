@@ -1,9 +1,14 @@
-import numpy as np
+from flask import Flask, request, jsonify
+from flask_cors import CORS  # Import CORS module
 import tensorflow as tf
-from flask import Flask, request, jsonify, render_template
-from io import BytesIO  # To read image file
+import numpy as np
+from io import BytesIO
+import base64
 
-app = Flask(__name__) # Create Flask app
+app = Flask(__name__)
+
+# Enable CORS for all routes
+CORS(app)  # This allows all origins
 
 cnn = tf.keras.models.load_model('trained_model.h5')
 
@@ -13,30 +18,32 @@ class_names = ['apple', 'banana', 'beetroot', 'bell pepper', 'cabbage', 'capsicu
                'pear', 'peas', 'pineapple', 'pomegranate', 'potato', 'raddish', 'soy beans', 'spinach', 
                'sweetcorn', 'sweetpotato', 'tomato', 'turnip', 'watermelon']
 
-
-@app.route('/')
-def home():
-    return render_template('index.html')
-
-@app.route('/predict', methods=['POST'])
+@app.route('/predict', methods=['POST', 'OPTIONS'])
 def predict():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+    try:
+        if request.method == "OPTIONS":
+            return jsonify({"message": "CORS preflight request"}), 200  # Preflight response
 
-    file = request.files['file']
-    image = tf.keras.preprocessing.image.load_img(BytesIO(file.read()), target_size=(64, 64))
+        # Get JSON data from request
+        data = request.get_json()
+        if 'image' not in data:
+            return jsonify({"error": "No image provided"}), 400
 
-    input_arr = tf.keras.preprocessing.image.img_to_array(image)
-    input_arr = np.expand_dims(input_arr, axis=0)
-    predictions = cnn.predict(input_arr)
-    result_index = np.argmax(predictions)
+        # Decode base64 string to image
+        image_data = base64.b64decode(data['image'])
+        image = tf.keras.preprocessing.image.load_img(BytesIO(image_data), target_size=(64, 64))
 
-    print(predictions)
+        input_arr = tf.keras.preprocessing.image.img_to_array(image)
+        input_arr = np.expand_dims(input_arr, axis=0)
 
-    result_index = np.argmax(predictions) #Return index of max element
-    print(result_index)
-    print("It's a {}".format(class_names[result_index]))
-    return jsonify({"prediction": class_names[result_index]})
+        # Make prediction
+        predictions = cnn.predict(input_arr)
+        result_index = np.argmax(predictions)
+
+        return jsonify({"prediction": class_names[result_index]})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
